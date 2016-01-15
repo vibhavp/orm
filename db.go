@@ -5,34 +5,51 @@ import (
 	"reflect"
 )
 
-//DB ...
 type DB struct {
-	db *sql.DB
+	DB *sql.DB
 }
 
+//Open opens a connection to the provided database, similar to database/sql's Open().
 func Open(driverName, dataSourceName string) (*DB, error) {
 	db, err := sql.Open(driverName, dataSourceName)
 	return &DB{db}, err
 }
 
-func (db *DB) AutoMigrate(v interface{}) error {
+//Migrate creates a table for the provided struct or struct pointer with the
+//struct's name as the table name. It panics if v's is not a struct or a struct
+//pointer.
+func (db *DB) Migrate(v interface{}) error {
+	return db.MigrateName(v, reflect.TypeOf(v).Name())
+}
+
+//MigrateName is like Migrate, but uses the provided name for the struct instead
+//of the name of the struct's type.
+func (db *DB) MigrateName(v interface{}, name string) error {
+	var value = reflect.ValueOf(v)
+
 	if reflect.TypeOf(v).Kind() != reflect.Struct {
-		panic("orm: argument not a struct")
+		if reflect.TypeOf(v).Kind() == reflect.Ptr {
+			if reflect.ValueOf(v).Elem().Kind() == reflect.Struct {
+				value = reflect.ValueOf(v)
+			}
+		} else {
+			panic("orm: call of Migrate on " + value.Kind().String())
+		}
 	}
 
-	query := "CREATE TABLE " + reflect.TypeOf(v).Name() + "("
+	query := "CREATE TABLE " + name + "("
 	if query == "" {
-		panic("orm: argument is an unnamed type")
+		panic("orm: call of Migrate on an unnamed type")
 	}
 
-	for i := 0; i < reflect.TypeOf(v).NumField(); i++ {
-		field := reflect.TypeOf(v).Field(i)
+	for i := 0; i < value.NumField(); i++ {
+		field := value.Type().Field(i)
 
 		if field.Tag.Get("sql") == "-" {
 			continue
 		}
 
-		switch reflect.ValueOf(v).Field(i).Interface().(type) {
+		switch value.Field(i).Interface().(type) {
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 			query += field.Name + " bigint"
 		case string:
@@ -47,7 +64,8 @@ func (db *DB) AutoMigrate(v interface{}) error {
 
 	}
 	query += ")"
-	_, err := db.db.Exec(query)
+	_, err := db.DB.Exec(query)
 
 	return err
+
 }
